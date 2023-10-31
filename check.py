@@ -1,17 +1,21 @@
 from tkinter import *
 from tkinter import Toplevel, Button
-from tkinter import ttk
-from threading import Thread
-from tkinter.scrolledtext import ScrolledText
-
-from tkinter import Tk, Canvas, PhotoImage
-
+import re
+from tkinter import Tk
 import paramiko
 import tkinter.font
 import socket
-import threading
-import time
+import tkinter as tk
+from tkinter import ttk
 
+def make_parsed_data(security_data):
+    parsed_data = []
+    for security in security_data:
+        if "취약" in security or "양호" in security:
+            items = security.split('|')[1:-1]
+            item = [items[0].strip(), items[1].strip(), items[2].strip()]
+            parsed_data.append(item)
+    return parsed_data
 
 root=Tk()
 
@@ -26,7 +30,6 @@ root.grid_columnconfigure(0, weight=1)
 font_title = tkinter.font.Font(family="Cambria", size=30, weight='bold')
 font_main = tkinter.font.Font(family="Cambria", size=12)
 font_text = tkinter.font.Font(family="Cambria")
-
 
 #시작화면 프레임
 frame_start = Frame(root, bg='white')
@@ -163,95 +166,126 @@ def show_error_message(msg):
     close_button = Button(new, width=10, text='닫기', bg='white', command=new.destroy)
     close_button.pack(pady=3)
 
-def show_loading_bar(root):
-    # 로딩바 생성
-    progressbar = ttk.Progressbar(root, mode='determinate', maximum=100, length=300)
-    progressbar.place(x=150, y=350)
+def run_result_new():
+    ssh, table_view = [], []
+    data1, data2 = [], []
+    try:
+        # 사용명령어
+        commands = [
+            'wget https://github.com/pridejy/capstone/raw/main/test.py',
+            'python3 test.py',
+            # 'rm -rf test.py'
+        ]
+        # SSH 연결
+        ssh = paramiko.SSHClient()
+        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        ssh.connect(hostname=entry_ip.get(), port=22, username=entry_id.get(), password=entry_pw.get())
 
-    # 결과 윈도우 창
-    new = Toplevel(bg='white')
-    new.title('L.Checker Result')
-    new.geometry('680x830+150+20')
-    new.withdraw() # 결과 창 숨기기
+        for cmd in commands:
+            stdin, stdout, stderr = ssh.exec_command(cmd)
+            result_list = stdout.read().decode().split('\n')
+            print(result_list)
 
-    # 결과를 나타낼 text 위젯
-    text_re = Text(new, bg='white', height=59, width=90)
-    text_re.grid(row=6, column=2, padx=10, pady=10)
+            if cmd == 'python3 test.py':
+                split_index = result_list.index("")
 
-    # 결과 text 위젯 스크롤바
-    scrollbar = Scrollbar(new)
-    scrollbar.grid(row=6, column=3, sticky='NS', pady=10)
-    text_re.config(yscrollcommand=scrollbar.set)
-    scrollbar.config(command=text_re.yview)
+                account_security_raw = result_list[:split_index]
+                file_security_raw = result_list[split_index + 1:]
 
-    # 사용명령어
-    commands = [
-        # 'wget -P ~ https://raw.githubusercontent.com/pridejy/capstone/main/test.py',
-        'python3 test2.py',
-        # 'rm -rf test.py'
-    ]
+                data1 = make_parsed_data(account_security_raw)
+                data2 = make_parsed_data(file_security_raw)
 
-    def run_result():
-        try:
-            # SSH 연결
-            ssh = paramiko.SSHClient()
-            ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-            ssh.connect(hostname=entry_ip.get(), port=22, username=entry_id.get(), password=entry_pw.get())
+        # tkinter 창 생성
+        table_view = tk.Tk()
+        table_view.title("L.Checker Result")
+        table_view.geometry("700x700")
+        # 제목 레이블 추가
+        title_label = tk.Label(table_view, text="계정 보안 점검")
+        title_label.pack()
 
-            # 결과 text 위젯에 출력할 점검 내용별 글씨 색상
-            for cmd in commands:
-                stdin, stdout, stderr = ssh.exec_command(cmd)
-                result_list = stdout.read().decode().split('\n')
+        # 수직 분할 레이아웃을 위한 PanedWindow 생성
+        paned = ttk.Panedwindow(table_view, orient=tk.VERTICAL)
+        paned.pack(fill=tk.BOTH, expand=True)
 
-                if cmd == 'python3 test2.py':
-                    for result in result_list:
-                        if "취약" in result:
-                            index = result.find("|  취약  |")
-                            text_re.insert(END, result[:index], 'black')
-                            text_re.insert(END, result[index:] + '\n\n', 'red')
-                        elif "양호" in result:
-                            index = result.find("|  양호  |")
-                            text_re.insert(END, result[:index], 'black')
-                            text_re.insert(END, result[index:] + '\n\n', 'green')
-                        else:
-                            text_re.insert(END, result + '\n')
+        # 첫 번째 표 생성
+        frame1 = ttk.Frame(paned)
+        tree1 = ttk.Treeview(frame1, columns=("1", "2", "3"), show="headings")
 
+        tree1.heading("1", text="항목")
+        tree1.heading("2", text="설명")
+        tree1.heading("3", text="상태")
 
+        tree1.column("1", width=100)
+        tree1.column("2", width=320)
+        tree1.column("3", width=100)
 
-            btn_view_contents = Button(new, text="점검 내용 보기", command=view_inspection_contents)
-            btn_view_contents.place(x=580, y=793)
+        tree1.pack()
 
-            text_re.config(state=DISABLED)
-            text_re.tag_configure('green', foreground='green')
-            text_re.tag_configure('red', foreground='red')
+        # Treeview에 색상 설정
+        tree1.tag_configure('green', background='green')
+        tree1.tag_configure('red', background='red')
 
-        except socket.error:
-            show_error_message("IP주소가 틀렸습니다.")
-        except paramiko.AuthenticationException:
-            show_error_message("ID 혹은 PASSWD가 틀렸습니다.")
-        except Exception as e:
-            new.destroy()
-            print(e)
-        finally:
-            ssh.close()
-            progressbar.place_forget()
-            new.deiconify() #결과 창 보이기
+        # 데이터 추가
+        for item in data1:
+            if "양호" in item[2]:
+                tree1.insert("", "end", values=item, tags=('green',))
+            elif "취약" in item[2]:
+                tree1.insert("", "end", values=item, tags=('red',))
 
-    def update_loading_bar():
-        progress = 0
-        while progress < 100:
-            progress += 1
-            progressbar['value'] = progress
-            progressbar.update()
-            time.sleep(0.1)
+        # 두 번째 표 생성
+        frame2 = ttk.Frame(paned)
+        title_label2 = tk.Label(frame2, text="파일 보안 점검")
+        title_label2.pack()
+        tree2 = ttk.Treeview(frame2, columns=("1", "2", "3"), show="headings")
 
-        # 로딩 작업이 완료되면 결과 창 열기
-        Thread(target=run_result).start()
+        tree2.heading("1", text="항목")
+        tree2.heading("2", text="설명")
+        tree2.heading("3", text="상태")
 
-    # 작업을 처리할 스레드 실행
-    Thread(target=update_loading_bar).start()
-def view_inspection_contents():
+        tree2.column("1", width=100)
+        tree2.column("2", width=320)
+        tree2.column("3", width=100)
+
+        tree2.pack()
+
+        tree1['height'] = len(data1)
+        tree2['height'] = len(data2)
+
+        tree2.tag_configure('green', background='green')
+        tree2.tag_configure('red', background='red')
+
+        # 데이터 추가
+        for item in data2:
+            if "양호" in item[2]:
+                tree2.insert("", "end", values=item, tags=('green',))
+            elif "취약" in item[2]:
+                tree2.insert("", "end", values=item, tags=('red',))
+
+        # PanedWindow에 프레임과 레이블 추가
+        paned.add(frame1, weight=1)
+        paned.add(frame2, weight=1)
+        # 버튼 추가
+        btn_view_contents = Button(table_view, text="점검 내용 보기", command=view_inspection_contents_new)
+        btn_view_contents.pack(side=tk.RIGHT, padx=10, pady=10)  # 오른쪽 아래에 배치
+
+        table_view.mainloop()
+    except socket.error:
+        show_error_message("IP주소가 틀렸습니다.")
+    except paramiko.AuthenticationException:
+        show_error_message("ID 혹은 PASSWD가 틀렸습니다.")
+    except Exception as e:
+        table_view.destroy()
+        print(e)
+    finally:
+        ssh.close()
+        table_view.deiconify() #결과 창 보이기
+
+def view_inspection_contents_new():
     log_file_path = "~/checklinux/inspection_contents.log"
+    table_data = []
+    current_id = None
+    current_condition = []
+    current_description = []
 
     try:
         ssh = paramiko.SSHClient()
@@ -259,33 +293,60 @@ def view_inspection_contents():
         ssh.connect(hostname=entry_ip.get(), port=22, username=entry_id.get(), password=entry_pw.get())
 
         stdin, stdout, stderr = ssh.exec_command(f"cat {log_file_path}")
-        inspection_contents = stdout.read().decode('utf-8')
-
+        inspection_contents = stdout.read().decode('utf-8').split("\n")
         ssh.close()
 
-        new_window = Toplevel(bg='white')
-        new_window.title("점검 내용 결과")
-        new_window.geometry("700x830+700+20")
+        for i, line in enumerate(inspection_contents):
+            line = line.strip()
+            if line:
+                if "조건" in line:
+                    if current_id:
+                        table_data.append([current_id, "\n".join(current_condition), "\n".join(current_description)])
+                        current_condition, current_description = [], []
+                    current_id = re.findall(r'U-\d{2}', line)
+                elif "양호" in line or "취약" in line:
+                    current_condition.append(line)
+                elif line != '' and "======" not in line:
+                    current_description.append(line)
 
-        text_widget = Text(new_window, bg='white', height=59, width=93)
-        text_widget.insert(END, inspection_contents)
-        text_widget.grid(row=6, column=2, padx=10, pady=10)
+        if current_id:
+            table_data.append([current_id, "\n".join(current_condition), "\n".join(current_description)])
 
-        scrollbar = Scrollbar(new_window)
-        scrollbar.grid(row=6, column=3, sticky='NS', pady=10)
-        text_widget.config(yscrollcommand=scrollbar.set)
-        scrollbar.config(command=text_widget.yview)
+        # tkinter 윈도우 생성
+        inspection_view = tk.Tk()
+        inspection_view.title("점검 내용 표")
+        inspection_view.geometry("1800x1000")
+        style = ttk.Style(inspection_view)
+        style.configure("mystyle.Treeview", rowheight=60)
 
-        text_widget.config(state=DISABLED)
+        frame = Frame(inspection_view)
+        frame.pack(fill='both', expand=True)
 
-        btn_cls = Button(new_window, width=10, text='닫기', bg='white', command=new_window.destroy)
-        btn_cls.place(x=610, y=793)
+
+        # Treeview 표 생성
+        tree3 = ttk.Treeview(frame, style='mystyle.Treeview', columns=("ID", "조건", "점검 내용"), show="headings")
+        tree3.heading("ID", text="ID")
+        tree3.heading("조건", text="조건")
+        tree3.heading("점검 내용", text="점검 내용")
+
+        tree3.column("ID", width=100)
+        tree3.column("조건", width=900)
+        tree3.column("점검 내용", width=600)
+
+        tree3['height'] = 200
+
+        # 데이터 추가
+        for row in table_data:
+            tree3.insert("", "end", values=row)
+
+        tree3.pack()
+
+        inspection_view.mainloop()
     except FileNotFoundError:
         print(f"로그 파일이 없습니다:{log_file_path}")
 
-
 #점검 시작 버튼
-button = Button(frame_main, width=10, text="실행", bg='white', command=lambda:show_loading_bar(root))
+button = Button(frame_main, width=10, text="실행", bg='white', command=lambda:run_result_new())
 button.place(x=260, y=300)
 #button.grid(row=4, column=2, padx=10, pady=10)
 
