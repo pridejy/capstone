@@ -54,6 +54,7 @@ try:
 except subprocess.CalledProcessError:
     result = ''
 
+
 #점검 내용 파일 생성
 with open(log_file_path, 'w') as f:
     f.write("="*30 + " U-01 조건 " + "="*30 + "\n")
